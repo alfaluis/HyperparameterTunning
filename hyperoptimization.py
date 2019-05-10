@@ -62,8 +62,8 @@ class HyperOptimization(object):
         :param show:
         :return:
         """
-        assert type(self.xtrain) == pd.DataFrame, "xtrain must be a pandas DataFrame"
-        assert not self.xtrain.empty, "xtrain can't be empty"
+        # assert type(self.xtrain) == pd.DataFrame, "xtrain must be a pandas DataFrame"
+        assert not self.xtrain.shape[0] == 0, "xtrain can't be empty"
         assert type(params) == dict, "params must be a dict type"
 
         if self.method == 'cv':
@@ -77,24 +77,10 @@ class HyperOptimization(object):
                                   callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
 
             # the best number of estimator is exactly the shape of the returned DataFrame from the last function
-            self.params['n_estimators'] = self.cvresult.shape[0]
+            self.params['n_estimators'] = self.results.shape[0]
             auc = self.results.loc[self.results.shape[0]-1, 'test-auc-mean']
             return {'loss': 1 - auc, 'status': STATUS_OK}
 
-        elif (self.method == 'standard') and (self.xtest is not None) and (self.ytest is not None):
-            print('Training with Cross Validation...')
-            # 2- Select the best number if estimators using the provided Test Set
-            # param mustn't include n_estimators parameter
-            model = xgb.XGBClassifier(**params)
-            eval_set = [(self.xtrain, self.ytrain), (self.xtest, self.ytest)]
-            # when we use multiple eval_metric the early_stopping_rounds use the last one
-            model.fit(self.xtrain, self.ytrain,
-                      eval_metric=self.metrics,
-                      eval_set=eval_set,
-                      early_stopping_rounds=10, verbose=self.verbose)
-            pred = model.predict_proba(self.xtest)
-            auc = roc_auc_score(y_true=self.ytest, y_score=pred[:, 1])
-            return {'loss': 1 - auc, 'status': STATUS_OK}
         else:
             assert ValueError, "parameters method, xtrain, ytrain, xtest and ytest must be a valid combination "
             return None
