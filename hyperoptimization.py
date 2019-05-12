@@ -13,11 +13,12 @@ import xgboost as xgb
 
 
 class HyperOptimization(object):
-    def __init__(self, classifier='xgboost', metrics='auc', verbose=False, plot_auc=False, tpe_algorithm=tpe.suggest):
+    def __init__(self, classifier='xgboost', metrics='auc', params=dict(), verbose=False,
+                 plot_auc=False, tpe_algorithm=tpe.suggest, max_eval=10):
         self.metrics = metrics
         self.xtrain: pandas.DataFrame = pandas.DataFrame
         self.ytrain: pandas.Series = pandas.Series
-        self.params: dict = {}
+        self.params: dict = params
         self.method = 'cv'
         self.verbose = verbose
         self.plot_ = plot_auc
@@ -26,26 +27,28 @@ class HyperOptimization(object):
         self.result = pd.DataFrame
         self.classifier = classifier
         self.trials = Trials()
+        self.max_eval = max_eval
 
-    def save_info(self, space, xtrain, ytrain):
+    def _save_info(self, space, xtrain, ytrain):
         self.params = space
         self.xtrain = xtrain
         self.ytrain = ytrain
         self.trials = Trials()
 
-    def find(self, space, xtrain, ytrain, max_eval=100):
-        self.save_info(space=space, xtrain=xtrain, ytrain=ytrain)
+    def find(self, space, xtrain, ytrain):
+        self._save_info(space=space, xtrain=xtrain, ytrain=ytrain)
         if self.classifier == 'knn':
-            best = fmin(fn=self.knn_train_cv, space=space, algo=tpe.suggest,
-                        max_evals=max_eval, trials=self.trials, rstate=np.random.RandomState(50))
+            best = fmin(fn=self._knn_train_cv, space=space, algo=tpe.suggest,
+                        max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         elif self.classifier == 'xgboost':
-            best = fmin(fn=self.xgb_train_cv, space=space, algo=tpe.suggest,
-                        max_evals=max_eval, trials=self.trials, rstate=np.random.RandomState(50))
+            best = fmin(fn=self._xgb_train_cv, space=space, algo=tpe.suggest,
+                        max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         elif self.classifier == 'svm':
-            best = fmin(fn=self.svm_train_cv, space=space, algo=tpe.suggest,
-                        max_evals=max_eval, trials=self.trials, rstate=np.random.RandomState(50))
+            best = fmin(fn=self._svm_train_cv, space=space, algo=tpe.suggest,
+                        max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         elif self.classifier == 'rf':
-            pass
+            best = fmin(fn=self._rf_train_cv, space=space, algo=tpe.suggest,
+                        max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         else:
             assert ValueError, ("Please select a valid classifier to evaluate. The model available are:"
                                 " knn, xgboost, rf")
@@ -54,23 +57,23 @@ class HyperOptimization(object):
             self.params[key] = value
         return self.params
 
-    def rf_train_cv(self, params):
+    def _rf_train_cv(self, params):
         self.clf = RandomForestClassifier(**params)
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring='roc_auc').mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
-    def lr_train_cv(self, params):
+    def _lr_train_cv(self, params):
         self.clf = LogisticRegression(**params)
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring='roc_auc').mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
-    def knn_train_cv(self, params):
+    def _knn_train_cv(self, params):
         self.clf = KNeighborsClassifier(**params)
 
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring='roc_auc').mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
-    def svm_train_cv(self, params):
+    def _svm_train_cv(self, params):
         aux_param = dict()
         aux_param['C'] = params['C']
         aux_param['class_weight'] = params['class_weight'] if params['class_weight'] == 'balanced' else None
@@ -86,7 +89,7 @@ class HyperOptimization(object):
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring='roc_auc').mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
-    def xgb_train_cv(self, params):
+    def _xgb_train_cv(self, params):
         """
         :param params:
         :return:
@@ -103,7 +106,7 @@ class HyperOptimization(object):
             aux_params['scale_pos_weight'] = self.ytrain[self.ytrain == 0].shape[0] / self.ytrain[self.ytrain == 1].shape[0]
 
         results = xgb.cv(aux_params, xg_train, num_boost_round=1000, nfold=10, metrics=self.metrics,
-                         early_stopping_rounds=5, stratified=True, seed=1,
+                         early_stopping_rounds=15, stratified=True, seed=1,
                          callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
         print(results)
         # the best number of estimator is exactly the shape of the returned DataFrame from the last function
