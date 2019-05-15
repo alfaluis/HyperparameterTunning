@@ -1,13 +1,12 @@
 import os
 import pandas as pd
 import numpy as np
-import pickle
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
-from sklearn.model_selection import RandomizedSearchCV
-import xgboost as xgb
+from hyperoptimization import HyperOptimization
+import parameters_config as config
 
 
 def plot_performance(y_true, y_score):
@@ -130,7 +129,6 @@ if __name__ == '__main__':
     # Join normal features and log features
     new_df = pd.merge(left=df_with_features_used.loc[:, ['Target']], right=log_cols, how='inner', on='CUENTA')
 
-    # Split train and test set
     train_set, test_set = train_test_split(df_with_features_used,
                                            test_size=0.3,
                                            stratify=df_with_features_used.Target,
@@ -144,8 +142,6 @@ if __name__ == '__main__':
     X_train_final = std_scaler.transform(X_train)
     X_test_final = std_scaler.transform(X_test)
 
-    from hyperoptimization import HyperOptimization
-    import parameters_config as config
-    tunning_params = HyperOptimization(classifier='xgboost', max_eval=300)
-    best_parameters = tunning_params.find(space=config.xgb_parameters, xtrain=X_train_final, ytrain=y_train)
-    print(best_parameters)
+    tunning_params = HyperOptimization(classifier='linear_svm', max_eval=20)
+    best_parameters = tunning_params.gradient_opt(space=config.linear_svm_param, xtrain=X_train_final, ytrain=y_train)
+    print(tunning_params.params)
