@@ -34,6 +34,16 @@ svm_params = {'param': hp.choice('param', [{'kernel': 'linear',
               'class_weight': hp.choice('class_weight', ['balanced', 1])
               }
 
+# Parameters configuration for LinearSVC
+linear_svm_param = {'penalty': hp.choice('penalty', ['l1', 'l2']),
+                    'loss': hp.choice('loss', ['squared_hinge']),
+                    'dual': False,
+                    'C': hp.loguniform('C', np.log(0.01), np.log(100)),
+                    'class_weight': hp.choice('class_weight', ['balanced', None]),
+                    'max_iter': 1000 + hp.randint('max_iter', 1000)
+                    }
+
+# Parameters configuration for LogisticRegression
 lr_params = {'param': hp.choice('param', [{'penalty': 'l1',
                                            'solver': hp.choice('solver-l1', ['liblinear', 'saga']),
                                            },
