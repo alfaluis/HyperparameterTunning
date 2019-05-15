@@ -2,7 +2,7 @@ from hyperopt import tpe, Trials, STATUS_OK, fmin
 import pandas
 from testing_xgb_early_stopping import get_num_estimators_xgb
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score
@@ -49,6 +49,9 @@ class HyperOptimization(object):
                         max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         elif self.classifier == 'svm':
             best = fmin(fn=self._svm_train_cv, space=space, algo=tpe.suggest,
+                        max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
+        elif self.classifier == 'linear_svm':
+            best = fmin(fn=self._linear_svm_train_cv, space=space, algo=tpe.suggest,
                         max_evals=self.max_eval, trials=self.trials, rstate=np.random.RandomState(50))
         elif self.classifier == 'rf':
             best = fmin(fn=self._rf_train_cv, space=space, algo=tpe.suggest,
@@ -121,6 +124,17 @@ class HyperOptimization(object):
         self.params = aux_param
         print(aux_param)
         self.clf = SVC(verbose=False, **aux_param)
+        results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring=self.metrics).mean()
+        return {'loss': 1 - results, 'status': STATUS_OK}
+
+    def _linear_svm_train_cv(self, params):
+        """ Configuration parameters for KNN classifier
+        :param params: a dictionary with parameters for KNN
+        :return: A dictionary with the loss (1 - AUC)
+        """
+        self.params = params
+        self.clf = LinearSVC(**params)
+
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring=self.metrics).mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
