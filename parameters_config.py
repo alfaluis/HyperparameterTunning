@@ -19,9 +19,7 @@ xgb_params = {'learning_rate': hp.loguniform('learning_rate', 0.001, 3),
               }
 
 # parameters configuration for svm
-svm_params = {'param': hp.choice('param', [{'kernel': 'linear',
-                                            },
-                                           {'kernel': 'rbf',
+svm_params = {'param': hp.choice('param', [{'kernel': 'rbf',
                                             'gamma':  hp.loguniform('gamma_rbf', 0.1, 3)
                                             },
                                            {'kernel': 'poly',

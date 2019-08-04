@@ -2,6 +2,7 @@ from hyperopt import tpe, Trials, STATUS_OK, fmin
 import pandas
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC, LinearSVC
+from sklearn.kernel_approximation import Nystroem
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score
@@ -123,6 +124,30 @@ class HyperOptimization(object):
         print(aux_param)
         self.clf = SVC(verbose=False, **aux_param)
         results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring=self.metrics).mean()
+        return {'loss': 1 - results, 'status': STATUS_OK}
+
+    def _svm_train_cv(self, params):
+        """ NEED TO BE REIMPLEMENTED """
+        aux_param = dict()
+        aux_param['C'] = params['C']
+        aux_param['class_weight'] = params['class_weight'] if params['class_weight'] == 'balanced' else None
+        aux_param['kernel'] = params['param']['kernel']
+        if params['param']['kernel'] == 'rbf':
+            aux_param['gamma'] = params['param']['gamma']
+            feature_map_nystroem = Nystroem(gamma=aux_param['gamma'], random_state=1)
+            feature_map_nystroem.fit(self.xtrain[:1000])
+            data_transformed = feature_map_nystroem.transform(self.xtrain)
+            self.clf = LinearSVC(verbose=False, **aux_param)
+            results = cross_val_score(self.clf, data_transformed, self.ytrain, scoring=self.metrics).mean()
+        elif params['param']['kernel'] == 'poly':
+            aux_param['degree'] = params['param']['degree']
+            aux_param['gamma'] = params['param']['gamma']
+            aux_param['coef0'] = params['param']['coef0']
+            results = 0.5
+        self.params = aux_param
+        print(aux_param)
+        # self.clf = LinearSVC(verbose=False, **aux_param)
+        # results = cross_val_score(self.clf, self.xtrain, self.ytrain, scoring=self.metrics).mean()
         return {'loss': 1 - results, 'status': STATUS_OK}
 
     def _linear_svm_train_cv(self, params):

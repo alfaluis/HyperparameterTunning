@@ -4,10 +4,103 @@ import numpy as np
 import pickle
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, FunctionTransformer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix, make_scorer
+from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 from sklearn.model_selection import RandomizedSearchCV
 import xgboost as xgb
+
+
+def train_xgb_model(params, xtrain, ytrain):
+    model = xgb.XGBClassifier(**params)
+    eval_set = [(xtrain, ytrain)]
+    model.fit(xtrain, y_train,
+              eval_metric=['logloss', 'auc'],
+              eval_set=eval_set,
+              verbose=True)
+    return model
+
+
+def get_num_estimators_xgb(xtrain: pd.DataFrame, ytrain: pd.Series, params: dict, method='cv', xtest=None, ytest=None,
+                           metrics='auc', verbose=False, show=True):
+    """
+    :param xtrain:
+    :param ytrain:
+    :param params:
+    :param method:
+    :param xtest:
+    :param ytest:
+    :param metrics:
+    :param verbose:
+    :param show:
+    :return:
+    """
+    assert type(xtrain) == pd.DataFrame, "xtrain must be a pandas DataFrame"
+    assert not xtrain.empty, "xtrain can't be empty"
+    assert type(params) == dict, "params must be a dict type"
+
+    if method == 'cv':
+        print('Training with Cross Validation...')
+        # 1- Select the best number of estimators using Cross Validation function
+        xg_train = xgb.DMatrix(xtrain, label=ytrain.ravel())
+        # do cross validation - this going to return the best number of estimators
+        print('Start cross validation')
+        cvresult = xgb.cv(params, xg_train, num_boost_round=1000, nfold=10, metrics=['auc'],
+                          early_stopping_rounds=50, stratified=True, seed=1,
+                          callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
+
+        # the best number of estimator is exactly the shape of the returned DataFrame from the last function
+        print(cvresult)
+        params['n_estimators'] = cvresult.shape[0]
+
+        # train the model
+        model = xgb.XGBClassifier(**params)
+        eval_set = [(xtrain, ytrain)]
+        model.fit(xtrain, ytrain,
+                  eval_metric=metrics,
+                  eval_set=eval_set,
+                  verbose=verbose)
+
+        if xtest is not None and ytest is not None:
+            pred = model.predict_proba(xtest)
+            if show:
+                plot_performance(y_true=ytest, y_score=pred[:, 1])
+        return model
+
+    elif (method == 'standard') and (xtest is not None) and (ytest is not None):
+        print('Training with Cross Validation...')
+        # 2- Select the best number if estimators using the provided Test Set
+        # param mustn't include n_estimators parameter
+        model = xgb.XGBClassifier(**params)
+        eval_set = [(xtrain, ytrain), (xtest, ytest)]
+        # when we use multiple eval_metric the early_stopping_rounds use the last one
+        model.fit(xtrain, ytrain,
+                  eval_metric=metrics,
+                  eval_set=eval_set,
+                  early_stopping_rounds=10, verbose=verbose)
+
+        if xtest is not None and ytest is not None:
+            pred = model.predict_proba(xtest)
+            if show:
+                plot_performance(y_true=ytest, y_score=pred[:, 1])
+
+        return model
+
+    else:
+        assert ValueError, "parameters method, xtrain, ytrain, xtest and ytest must be a valid combination "
+        return None
+
+
+def plot_performance(y_true, y_score):
+    fpr, tpr, thres = roc_curve(y_true=y_true, y_score=y_score)
+    auc_score = auc(fpr, tpr)
+    print('ROCAUC:', auc_score)
+    fig, ax = plt.subplots(2, 1)
+    ax[0].plot(fpr, tpr)
+    ax[1].plot(fpr, thres)
+    ax[0].grid()
+    ax[1].grid()
+    fig.suptitle('AUC: {}'.format(auc_score))
+    plt.show()
 
 
 def identity_variables_types(data, thres=10):
@@ -128,32 +221,59 @@ if __name__ == '__main__':
     y_test = test_set.loc[:, 'Target']
     std_scaler = StandardScaler().fit(X_train)
     max_min_scaler = MinMaxScaler().fit(X_train)
-    X_train_final = max_min_scaler.transform(X_train)
-    X_test_final = max_min_scaler.transform(X_test)
+    X_train_final = std_scaler.transform(X_train)
+    X_test_final = std_scaler.transform(X_test)
 
-    # ***********************************************************************
-    # *********** Random Search CV ******************************************
-    # ***********************************************************************
+    # *****************************************
+    # Training a XGBoost
+    # *****************************************
     positive_weight = train_set.loc[train_set.Target == 0, :].shape[0]/train_set.loc[train_set.Target == 1, :].shape[0]
-
     param = {'max_depth': 2, 'eta': 1, 'silent': 1, 'objective': 'binary:logistic'}
-
-    xgtrain = xgb.DMatrix(X_train, label=y_train.ravel())
+    get_num_estimators_xgb(xtrain=X_train,
+                           ytrain=y_train,
+                           xtest=X_test,
+                           ytest=y_test,
+                           params=param,
+                           method='cv')
+    # 1- Select the best number of estimators using Cross Validation function
+    positive_weight = train_set.loc[train_set.Target == 0, :].shape[0]/train_set.loc[train_set.Target == 1, :].shape[0]
+    param = {'max_depth': 2, 'eta': 1, 'silent': 1, 'objective': 'binary:logistic'}
+    xgtrain = xgb.DMatrix(X_train_final, label=y_train.ravel())
     # do cross validation - this going to return the best number of estimators
     print('Start cross validation')
-    cvresult = xgb.cv(param, xgtrain, num_boost_round=1000, nfold=5, metrics=['auc'],
+    cvresult = xgb.cv(param, xgtrain, num_boost_round=1000, nfold=10, metrics=['auc'],
                       early_stopping_rounds=50, stratified=True, seed=1,
                       callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
-
-    print(cvresult)
+    print(cvresult.iloc[-1, :])
     # the best number of estimator is exactly the shape of the returned DataFrame from the last function
     param['n_estimators'] = cvresult.shape[0]
     # train the model
     model = xgb.XGBClassifier(**param)
-    model.fit(X_train, y_train, eval_metric='auc')
-    pred = model.predict_proba(X_test)
-    roc_auc_score(y_test, pred[:, 1])
+    eval_set = [(X_train_final, y_train), (X_test_final, y_test)]
+    model.fit(X_train_final, y_train,
+              eval_metric=['logloss', 'auc'],
+              eval_set=eval_set,
+              verbose=True)
+    pred = model.predict_proba(X_test_final)
+    plot_performance(y_true=y_test, y_score=pred[:, 1])
+    # 2- Select the best number if estimators using the provided Test Set
+    # param mustn't include n_estimators parameter
+    param = {'max_depth': 2, 'eta': 1, 'silent': 1, 'objective': 'binary:logistic'}
+    model2 = xgb.XGBClassifier(**param)
+    eval_set = [(X_train_final, y_train), (X_test_final, y_test)]
+    # when we use multiple eval_metric the early_stopping_rounds use the last one
+    res = model2.fit(X_train_final, y_train,
+                     eval_metric=['auc'],
+                     eval_set=eval_set,
+                     early_stopping_rounds=10, verbose=True)
+    pred = model2.predict_proba(X_test_final)
+    plot_performance(y_true=y_test, y_score=pred[:, 1])
 
+    get_num_estimators_xgb(xtrain=X_train,
+                           ytrain=y_train,
+                           params=param,
+                           method='standard',
+                           xtest=X_test)
     # OLD SOLUTION
 
     parameters = {'learning_rate': [float(x) for x in np.linspace(start=0.001, stop=2, num=10)],
@@ -191,5 +311,6 @@ if __name__ == '__main__':
     ax[1].plot(fpr, thres)
     ax[0].grid()
     ax[1].grid()
+    fig.suptitle('aaaa')
     plt.show()
 
